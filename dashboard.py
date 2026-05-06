@@ -27,6 +27,7 @@ st.caption("Automated anomaly detection and regulatory reporting engine")
 
 tab1, tab2, tab3 = st.tabs(["Overview", "Anomaly Explorer", "Report Generator"])
 
+# ─── TAB 1: OVERVIEW ───────────────────────────────────────────────
 with tab1:
     st.subheader("P&L Summary")
     col1, col2, col3, col4 = st.columns(4)
@@ -70,8 +71,98 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
+# ─── TAB 2: ANOMALY EXPLORER ───────────────────────────────────────
 with tab2:
-    st.write("Anomaly Explorer coming in Part 3")
+    st.subheader("Anomaly Detection Summary")
 
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Rule-Based Flags", int((df["flag_reason"] != "").sum()))
+    with c2:
+        st.metric("Z-Score Flags", int(df["z_anomaly"].sum()))
+    with c3:
+        st.metric("ML Flags", int(df["ml_anomaly"].sum()))
+
+    st.divider()
+
+    st.subheader("Transaction Scatter — Anomalies Highlighted")
+    scatter_df = df.copy()
+    scatter_df["status"] = scatter_df["any_anomaly"].apply(
+        lambda x: "Anomaly" if x else "Normal"
+    )
+    fig2 = px.scatter(
+        scatter_df,
+        x="debit",
+        y="credit",
+        color="status",
+        color_discrete_map={"Anomaly": "#e74c3c", "Normal": "#7f8c8d"},
+        opacity=0.7,
+        log_x=True,
+        log_y=True,
+        title="Transaction Scatter — Anomalies Highlighted",
+        template="plotly_dark"
+    )
+    fig2.update_traces(marker=dict(size=6))
+    fig2.update_traces(marker=dict(size=10), selector=dict(name="Anomaly"))
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.divider()
+
+    st.subheader("Flagged Transactions")
+    filter_option = st.selectbox(
+        "Filter by flag type",
+        ["All Anomalies", "Rule-based only", "Z-score only", "ML only"]
+    )
+
+    if filter_option == "All Anomalies":
+        filtered = df[df["any_anomaly"] == True]
+    elif filter_option == "Rule-based only":
+        filtered = df[df["flag_reason"] != ""]
+    elif filter_option == "Z-score only":
+        filtered = df[df["z_anomaly"] == True]
+    else:
+        filtered = df[df["ml_anomaly"] == True]
+
+    st.dataframe(
+        filtered[[
+            "transaction_id", "date", "entity", "account_type",
+            "debit", "credit", "currency", "region",
+            "flag_reason", "z_anomaly", "ml_anomaly"
+        ]],
+        use_container_width=True,
+        hide_index=True
+    )
+
+# ─── TAB 3: REPORT GENERATOR ───────────────────────────────────────
 with tab3:
-    st.write("Report Generator coming in Part 4")
+    st.subheader("Generate Audit Report")
+
+    st.info("""
+    **This report will contain:**
+    - P&L Statement (Gross Revenue, Expenses, Net Income, Margin)
+    - Balance Sheet with compliance status
+    - Variance Analysis by account type
+    - Top 15 anomalous transactions sorted by debit amount
+    """)
+
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.write(f"**Total Transactions Analysed:** {len(df):,}")
+        st.write(f"**Total Anomalies Detected:** {int(df['any_anomaly'].sum()):,}")
+        st.write(f"**Net Income:** ${pl['Net Income']:,.2f}")
+        st.write(f"**Balance Status:** {bs['Balance Check']}")
+
+    if st.button("Generate PDF Report", type="primary"):
+        try:
+            from report import generate_report
+            generate_report(df, pl, bs, variance)
+            st.success("Report generated successfully!")
+            with open("data/finsight_report.pdf", "rb") as f:
+                st.download_button(
+                    label="Download Report",
+                    data=f,
+                    file_name="finsight_report.pdf",
+                    mime="application/pdf"
+                )
+        except Exception as e:
+            st.error(f"Error generating report: {e}")
